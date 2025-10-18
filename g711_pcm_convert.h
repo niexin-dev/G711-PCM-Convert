@@ -13,7 +13,7 @@ enum g711type {
  * 
  * @param pCodecBits store g711 encoded data 
  * @param pBuffer pcm raw data
- * @param BufferSize pcm data len
+ * @param BufferSize pcm data len (must be a multiple of 2 bytes)
  * @param type g711 data type
  * @return int encode data length
  */
