@@ -1,5 +1,8 @@
 #include "g711_pcm_convert.h"
 
+#include <stdint.h>
+#include <string.h>
+
 
 #define SIGN_BIT    (0x80)      /* Sign bit for a A-law byte. */  
 #define QUANT_MASK  (0xf)       /* Quantization field mask. */  
@@ -262,23 +265,39 @@ unsigned char ulaw2alaw(unsigned char uval)
 int G711EnCode(char* pCodecBits, char* pBuffer, int BufferSize, enum g711type type)
 {
     unsigned char* codecbits = (unsigned char*)pCodecBits;
-    short* buffer = (short*)pBuffer;
+    const unsigned char* buffer = (const unsigned char*)pBuffer;
 
-    if(pCodecBits == 0 || pBuffer == 0 || BufferSize <= 0)
+    if (pCodecBits == 0 || pBuffer == 0 || BufferSize <= 0)
         return -1;
 
-    if(type == G711ALAW){
-        for(int i=0; i<BufferSize/2; i++)  {  
-            codecbits[i] = linear2alaw(buffer[i]);  
-        }  
-    } else {
-        for(int i=0; i<BufferSize/2; i++)  {  
-            codecbits[i] = linear2ulaw(buffer[i]);  
-        } 
+    if (BufferSize % (int)sizeof(int16_t) != 0)
+        return -1;
+
+    if (type != G711ALAW && type != G711ULAW)
+        return -1;
+
+    int samples = BufferSize / (int)sizeof(int16_t);
+
+    const int16_t* aligned_samples = NULL;
+    if (((uintptr_t)buffer % sizeof(int16_t)) == 0)
+        aligned_samples = (const int16_t*)buffer;
+
+    for (int i = 0; i < samples; ++i) {
+        int16_t sample;
+
+        if (aligned_samples)
+            sample = aligned_samples[i];
+        else
+            memcpy(&sample, buffer + i * sizeof(sample), sizeof(sample));
+
+        if (type == G711ALAW)
+            codecbits[i] = linear2alaw(sample);
+        else
+            codecbits[i] = linear2ulaw(sample);
     }
-    
-    return BufferSize/2;  
-}   
+
+    return samples;
+}
 
 /**
  * @brief g711 data decode to pcm data
@@ -293,23 +312,34 @@ int G711EnCode(char* pCodecBits, char* pBuffer, int BufferSize, enum g711type ty
  */
 int G711Decode(char* pRawData, char* pBuffer, int BufferSize, enum g711type type)
 {
-    short *out_data = (short*)pRawData;  
-    unsigned char* buffer = (unsigned char*)pBuffer;
+    unsigned char* raw_bytes = (unsigned char*)pRawData;
+    const unsigned char* buffer = (const unsigned char*)pBuffer;
 
-    if(pRawData == 0 || pBuffer == 0 || BufferSize <= 0)
+    if (pRawData == 0 || pBuffer == 0 || BufferSize <= 0)
         return -1;
 
-    if(type == G711ALAW) {
-        for(int i=0; i<BufferSize; i++){  
-            out_data[i] = alaw2linear(buffer[i]);  
-        }  
-    } else {
-        for(int i=0; i<BufferSize; i++){  
-            out_data[i] = ulaw2linear(buffer[i]);  
-        }
+    if (type != G711ALAW && type != G711ULAW)
+        return -1;
+
+    int16_t* aligned_out = NULL;
+    if (((uintptr_t)raw_bytes % sizeof(int16_t)) == 0)
+        aligned_out = (int16_t*)raw_bytes;
+
+    for (int i = 0; i < BufferSize; ++i) {
+        int16_t sample;
+
+        if (type == G711ALAW)
+            sample = alaw2linear(buffer[i]);
+        else
+            sample = ulaw2linear(buffer[i]);
+
+        if (aligned_out)
+            aligned_out[i] = sample;
+        else
+            memcpy(raw_bytes + i * sizeof(sample), &sample, sizeof(sample));
     }
 
-    return BufferSize*2;  
+    return BufferSize * (int)sizeof(int16_t);
 }
 
 /**
@@ -323,17 +353,19 @@ int G711Decode(char* pRawData, char* pBuffer, int BufferSize, enum g711type type
  */
 int G711TypeChange(unsigned char* alawdata, unsigned char* ulawdata, int datasize, enum g711type type)
 {
-    if(alawdata == 0 || ulawdata == 0 || datasize <= 0)
+    if (alawdata == 0 || ulawdata == 0 || datasize <= 0)
         return 0;
 
-    if(type == G711ALAW) {
-        for(int i = 0; i < datasize; i++) {
+    if (type == G711ALAW) {
+        for (int i = 0; i < datasize; i++) {
             alawdata[i] = ulaw2alaw(ulawdata[i]);
         }
-    } else {
-        for(int i = 0; i < datasize; i++) {
+    } else if (type == G711ULAW) {
+        for (int i = 0; i < datasize; i++) {
             ulawdata[i] = alaw2ulaw(alawdata[i]);
         }
+    } else {
+        return 0;
     }
     return 1;
-}  
+}
